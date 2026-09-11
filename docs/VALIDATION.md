@@ -30,3 +30,11 @@
 - Vercel SSO로 향하는 문서 이동은 deploymentProtection으로 분류했다.
 - `pnpm test` 3개와 `pnpm test:browser` 통합 테스트 통과. Oxlint·TypeScript·빌드 통과.
 - 실제 dev.aistudio.dropshot.io의 무인증 응답은 Vercel SSO 302였다. 사용자의 유효한 자동화 시크릿으로 이 도메인의 인증 성공까지 검증한 것은 아니다.
+
+## 실제 AI Studio dev 재검증
+
+- `dev.aistudio.dropshot.io`가 AI Studio 프로젝트의 배포를 가리키는 것을 Vercel API로 확인했다.
+- 기존 Automation Bypass 시크릿 2개 모두 직접 GET 요청에서 HTTP 200을 반환했다. 값을 파일·로그·소스에 기록하거나 새 시크릿을 만들지 않았다.
+- 실제 촬영은 인증 성공 후 B 화면 스크롤 중 기존 55초 제한에 걸렸다. 요청 제한을 170초, Vercel 함수 제한을 180초로 조정했다.
+- 제한 조정 후 배포 API에서 모바일 A/B 모두 HTTP 200, 높이 8,350px, 약 80.9초로 완료했다. 일부 폰트·지연 콘텐츠 경고는 남았다.
+- 데스크톱에서 추가 스크린샷 시간 초과를 관측해 대체 촬영을 추가했다. 멈춘 폰트의 로컬 통합 테스트에서 대체 촬영 완료와 제외 영역 픽셀 비노출을 확인했다.

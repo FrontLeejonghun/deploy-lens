@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import serverlessChromium from '@sparticuz/chromium';
 import { specimen } from './specimen.mjs';
 import { isVercelLogin } from './target.mjs';
+import { captureScreenshot } from './screenshot.mjs';
 
 export const VIEWPORT_MAP = {
   desktop: { width: 1440, height: 960 },
@@ -345,7 +346,7 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
         `페이지 높이 ${documentHeight.toLocaleString()}px 중 상단 ${maxCaptureHeight.toLocaleString()}px까지 촬영했습니다. 무한 스크롤 또는 긴 페이지는 일부가 잘릴 수 있습니다.`,
       );
     captureStep = 'screenshot';
-    const screenshot = await page.screenshot({
+    const { screenshot, fallback } = await captureScreenshot(page, session, {
       fullPage: true,
       clip: { x: 0, y: 0, width: viewport.width, height: captureHeight },
       type: 'png',
@@ -355,6 +356,10 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
       maskColor: '#d8dbe6',
       timeout: 20000,
     });
+    if (fallback)
+      warnings.push(
+        '기본 스크린샷 준비가 지연되어 현재 렌더링된 화면을 촬영했습니다. 폰트·애니메이션 표시를 확인하세요.',
+      );
     if (blockedRequests)
       warnings.push(
         `조회 외 요청 등 ${blockedRequests}건을 차단했습니다. 해당 요청에 의존하는 화면은 다를 수 있습니다.`,

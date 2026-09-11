@@ -1,0 +1,22 @@
+# 검증 기록
+
+2026-09-11, macOS 로컬 및 개인 Vercel 프로덕션에서 확인했습니다.
+
+- Oxlint, Oxfmt, TypeScript 검사와 Vite 빌드 통과
+- 초기 샘플 3개 경로×2개 화면 크기 6건 촬영 성공
+- 동일 공개 URL 두 개: 픽셀 차이 0%, 문서 제목 수집
+- 요금제의 콘솔 오류, 404 실패 요청, SEO 변경 감지
+- 모바일 390px 및 데스크톱 1440px에서 문서 가로 넘침 없음
+- 키보드 방향키로 비교 슬라이더 50→51 이동
+- 의도한 변경 표시 및 브라우저 기록 저장 확인
+- 보호된 고정 샘플: 공개 데모 헤더가 있으면 200과 0% 비교, 없으면 accessDenied
+- 별도 HTTP 서버의 cross-origin redirect 검증: 원래 출처에는 커스텀 헤더, 이동한 출처에는 헤더 없음, 401 확인
+- 사설·메타데이터·IPv6 loopback 목적지 7종 거절
+- protocol-relative 경로·file URL 400, cross-site 요청 403
+- Vercel /renderCheck: 외부 CSS, CSSOM insertRule, Shadow DOM adoptedStyleSheets, 지연 주입 스타일 포함. 모바일 높이 861px, 경고 없음, 차이 0%
+- Vercel /brokenStyle: CSS 응답 실패를 별도 경고로 표시. 픽셀이 같아도 로딩 품질을 구분
+- Vercel /pricing 모바일: 전체 촬영 높이 1,481px, 첫 화면보다 아래까지 촬영
+
+초기 Vercel 빌드 패키지의 심볼릭 링크 문제는 Chromium 바이너리를 빌드 때 실제 디렉터리로 복사하여 해결했습니다. 설치된 Chromium 패키지의 폰트 등록 API 변경과 단일 프로세스에서 복수 컨텍스트 충돌은 임시 폰트 디렉터리와 A/B 독립 브라우저 실행으로 해결했습니다.
+
+실제 사용자의 dev 인증 정보는 제공받거나 사용하지 않았습니다. 해당 환경의 권한·추가 로그인 요구 여부는 사용자 헤더로 확인해야 합니다. 실제 모바일 기기, 모든 랜덤 콘텐츠, iframe 내부 및 중첩 스크롤 전체를 검증한 것은 아닙니다.

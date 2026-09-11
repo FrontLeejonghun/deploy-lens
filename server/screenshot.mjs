@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+
 export async function captureScreenshot(page, session, options) {
   try {
     return { screenshot: await page.screenshot(options), fallback: false };
@@ -29,23 +31,37 @@ export async function captureScreenshot(page, session, options) {
       }
     });
   }
-  // Assets have already had a bounded loading wait. CDP captures the painted page
-  // without Playwright's additional, potentially unbounded font readiness wait.
+  // Stop script-driven rendering too, and rasterize viewport-sized strips rather
+  // than asking the serverless compositor for one large full-page surface.
+  await session.send('Emulation.setScriptExecutionDisabled', { value: true });
   let timer;
   try {
-    const result = await Promise.race([
-      session.send('Page.captureScreenshot', {
-        format: 'png',
-        fromSurface: true,
-        captureBeyondViewport: true,
-        clip: { ...options.clip, scale: 1 },
-      }),
+    const screenshot = await Promise.race([
+      (async () => {
+        const tiles = [];
+        const { x, y, width, height } = options.clip;
+        const tileHeight = page.viewportSize()?.height ?? 960;
+        for (let top = 0; top < height; top += tileHeight) {
+          const result = await session.send('Page.captureScreenshot', {
+            format: 'png',
+            fromSurface: true,
+            captureBeyondViewport: true,
+            clip: { x, y: y + top, width, height: Math.min(tileHeight, height - top), scale: 1 },
+          });
+          tiles.push({ input: Buffer.from(result.data, 'base64'), top, left: 0 });
+        }
+        return sharp({ create: { width, height, channels: 4, background: '#ffffff' } })
+          .composite(tiles)
+          .png()
+          .toBuffer();
+      })(),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('Screenshot fallback timeout')), 20000);
       }),
     ]);
-    return { screenshot: Buffer.from(result.data, 'base64'), fallback: true };
+    return { screenshot, fallback: true };
   } finally {
     clearTimeout(timer);
+    await session.send('Emulation.setScriptExecutionDisabled', { value: false }).catch(() => {});
   }
 }

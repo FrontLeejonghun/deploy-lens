@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node --test tests/*.integration.mjs",
-    "dev": "node --watch server/index.mjs",
+    "dev": "node server/index.mjs",
     "build": "tsc --noEmit && vite build && node scripts/prepare-chromium.mjs",
     "start": "NODE_ENV=production node server/index.mjs",
     "check": "tsc --noEmit && node --check server/index.mjs && node --check server/capture.mjs",

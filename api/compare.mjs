@@ -136,6 +136,7 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '비교 작업을 완료하지 못했습니다.';
+    const details = error instanceof Error ? error.captureDetails : undefined;
     const code =
       controller.signal.aborted || /Timeout|timeout|초과/.test(message)
         ? 'timeout'
@@ -159,6 +160,7 @@ export default async function handler(req, res) {
       stage,
       code,
       name: error instanceof Error ? error.name : 'UnknownError',
+      ...details,
     });
     const messages = {
       deploymentProtection:
@@ -177,8 +179,20 @@ export default async function handler(req, res) {
       captureFailure:
         '페이지 촬영을 완료하지 못했습니다. 서버 접근 제한, 필수 API 차단 또는 로딩 상태를 확인하세요.',
     };
-    const friendly = messages[code];
-    if (!res.destroyed) return res.status(422).json({ error: friendly, code });
+    const sideLabel =
+      details?.side === 'before' ? '[A 변경 전] ' : details?.side === 'after' ? '[B 변경 후] ' : '';
+    let friendly = messages[code];
+    if (code === 'deploymentProtection' && details) {
+      friendly = details.hasVercelBypassHeader
+        ? 'x-vercel-protection-bypass 헤더를 설정했지만 Vercel이 인증을 거부했습니다. 해당 사이트 프로젝트의 Automation Bypass 시크릿인지, 복사한 값이 정확한지 확인하세요.'
+        : details.hasUrlParameters
+          ? 'URL 쿼리를 전달했지만 Vercel이 인증을 거부했습니다. 발급된 URL 전체와 해당 배포의 접근 권한을 확인하세요.'
+          : 'Vercel 인증이 필요하지만 이 환경에 x-vercel-protection-bypass 헤더가 없습니다. A와 B의 커스텀 헤더는 각각 설정해야 합니다.';
+    }
+    if (code === 'timeout' && details?.documentStatus === 200)
+      friendly =
+        '페이지 접근은 성공했지만 화면 준비 시간이 초과되었습니다. 인증 오류가 아닙니다. 잠시 후 다시 촬영하세요.';
+    if (!res.destroyed) return res.status(422).json({ error: sideLabel + friendly, code, details });
   } finally {
     clearTimeout(timer);
     res.off('close', onClose);

@@ -41,7 +41,7 @@ test('capture authentication across redirects, cookies, assets, and SSO', async 
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const root = `http://127.0.0.1:${server.address().port}`;
-  const run = (url, headers = []) =>
+  const run = (url, headers = [], afterHeaders = headers) =>
     comparePage({
       createBrowser: () => launchBrowser(),
       beforeUrl: url,
@@ -51,7 +51,7 @@ test('capture authentication across redirects, cookies, assets, and SSO', async 
       threshold: 0.1,
       signal: AbortSignal.timeout(45000),
       beforeHeaders: headers,
-      afterHeaders: headers,
+      afterHeaders,
     });
   try {
     const query = await run(captureTarget(root + '?share=fixture-query-secret', '/'));
@@ -75,7 +75,27 @@ test('capture authentication across redirects, cookies, assets, and SSO', async 
       { path: '/cross', authorized: true, cookie: false },
       { path: '/page', authorized: false, cookie: false },
     ]);
-    await assert.rejects(run(root + '/sso'), /DEPLOYMENT_PROTECTION/);
+    await assert.rejects(run(root + '/sso'), (error) => {
+      assert.match(error.message, /DEPLOYMENT_PROTECTION/);
+      const { documentStatus: _documentStatus, ...details } = error.captureDetails;
+      assert.deepEqual(details, {
+        step: 'navigation',
+        side: 'before',
+        hasCustomHeaders: false,
+        hasVercelBypassHeader: false,
+        hasUrlParameters: false,
+      });
+      return true;
+    });
+    await assert.rejects(
+      run(root + '/page', [{ name: 'x-test-auth', value: 'fixture-secret' }], []),
+      (error) => {
+        assert.equal(error.captureDetails.side, 'after');
+        assert.equal(error.captureDetails.hasCustomHeaders, false);
+        assert.equal(JSON.stringify(error.captureDetails).includes('fixture-secret'), false);
+        return true;
+      },
+    );
   } finally {
     server.close();
   }

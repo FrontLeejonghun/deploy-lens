@@ -99,6 +99,8 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
   const warnings = [];
   let blockedRequests = 0;
   let protectionRedirect = false;
+  let captureStep = 'setup';
+  let documentStatus;
   const headerMap = Object.fromEntries(
     customHeaders.map((header) => [header.name.toLowerCase(), header.value]),
   );
@@ -205,6 +207,11 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
         messages.push({ level: 'error', text: redact(scrub(error.message)) });
     });
     page.on('response', (response) => {
+      if (
+        response.request().isNavigationRequest() &&
+        response.request().frame() === page.mainFrame()
+      )
+        documentStatus = response.status();
       if (response.status() >= 400 && requests.length < 100)
         requests.push({
           url: scrub(response.url()),
@@ -222,16 +229,19 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
         });
     });
     const started = Date.now();
+    captureStep = 'navigation';
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
     if (protectionRedirect || isVercelLogin(page.url(), protectedOrigin))
       throw new Error('DEPLOYMENT_PROTECTION');
     if (response && response.status() >= 400)
       throw new Error(`페이지가 HTTP ${response.status()}로 응답했습니다.`);
+    captureStep = 'loading';
     await page
       .waitForLoadState('networkidle', { timeout: 4500 })
       .catch(() => warnings.push('요청이 계속되어 대기 시간 이후 촬영했습니다.'));
     await page.addStyleTag({ content: 'html { scroll-behavior: auto !important; }' });
     const maxCaptureHeight = 10000;
+    captureStep = 'scroll';
     for (let y = 0; y < maxCaptureHeight; y += Math.max(500, viewport.height - 120)) {
       const height = await page.evaluate(() =>
         Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0),
@@ -248,6 +258,7 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
         ),
       );
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    captureStep = 'render';
     await page
       .waitForFunction(
         () =>
@@ -333,6 +344,7 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
       warnings.push(
         `페이지 높이 ${documentHeight.toLocaleString()}px 중 상단 ${maxCaptureHeight.toLocaleString()}px까지 촬영했습니다. 무한 스크롤 또는 긴 페이지는 일부가 잘릴 수 있습니다.`,
       );
+    captureStep = 'screenshot';
     const screenshot = await page.screenshot({
       fullPage: true,
       clip: { x: 0, y: 0, width: viewport.width, height: captureHeight },
@@ -364,8 +376,14 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
       elapsedMs: Date.now() - started,
     };
   } catch (error) {
-    if (protectionRedirect) throw new Error('DEPLOYMENT_PROTECTION');
-    throw error;
+    const failure = protectionRedirect
+      ? new Error('DEPLOYMENT_PROTECTION')
+      : error instanceof Error
+        ? error
+        : new Error('촬영을 완료하지 못했습니다.');
+    failure.captureStep = captureStep;
+    failure.documentStatus = documentStatus;
+    throw failure;
   } finally {
     signal.removeEventListener('abort', abort);
     await context.close().catch(() => {});
@@ -396,15 +414,29 @@ export async function comparePage({
 }) {
   const viewport = VIEWPORT_MAP[device];
   const captures = [];
-  for (const [targetUrl, headers] of [
+  for (const [index, [targetUrl, headers]] of [
     [beforeUrl, beforeHeaders],
     [afterUrl, afterHeaders],
-  ]) {
-    const browser = await createBrowser();
+  ].entries()) {
+    let browser;
     try {
+      browser = await createBrowser();
       captures.push(await capture(browser, targetUrl, viewport, masks, signal, demo, headers));
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error('촬영을 완료하지 못했습니다.');
+      failure.captureDetails = {
+        step: failure.captureStep,
+        documentStatus: failure.documentStatus,
+        side: index === 0 ? 'before' : 'after',
+        hasCustomHeaders: headers.length > 0,
+        hasVercelBypassHeader: headers.some(
+          (header) => header.name.toLowerCase() === 'x-vercel-protection-bypass',
+        ),
+        hasUrlParameters: !!new URL(targetUrl).search,
+      };
+      throw failure;
     } finally {
-      await browser.close().catch(() => {});
+      await browser?.close().catch(() => {});
     }
   }
   const [before, after] = captures;

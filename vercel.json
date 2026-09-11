@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/compare.mjs": {
-      "maxDuration": 60,
+      "maxDuration": 180,
       "includeFiles": "server/{chromium,fonts}/**"
     }
   },

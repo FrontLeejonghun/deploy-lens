@@ -92,7 +92,7 @@ export default async function handler(req, res) {
   rateMap.set(ip, rate);
   active += 1;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 55000);
+  const timer = setTimeout(() => controller.abort(), 170000);
   const onClose = () => {
     if (!res.writableEnded) controller.abort();
   };

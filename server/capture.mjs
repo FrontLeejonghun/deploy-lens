@@ -230,7 +230,7 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
     });
     const started = Date.now();
     captureStep = 'navigation';
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     if (protectionRedirect || isVercelLogin(page.url(), protectedOrigin))
       throw new Error('DEPLOYMENT_PROTECTION');
     if (response && response.status() >= 400)
@@ -353,7 +353,7 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
       caret: 'hide',
       mask: maskList,
       maskColor: '#d8dbe6',
-      timeout: 10000,
+      timeout: 20000,
     });
     if (blockedRequests)
       warnings.push(

@@ -1,11 +1,13 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import compare from '../api/compare.mjs';
+import accessCheck from '../api/accessCheck.mjs';
 const app = express();
 const port = Number(process.env.PORT ?? 4317);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
 app.all('/api/compare', compare);
+app.all('/api/accessCheck', accessCheck);
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(fileURLToPath(new URL('../dist', import.meta.url))));
   app.get('/{*path}', (_req, res) =>

@@ -266,7 +266,14 @@ export function App() {
           }),
           signal: controller.signal,
         });
-        const body = (await response.json()) as Comparison & { error?: string };
+        let body: Comparison & { error?: string };
+        try {
+          body = (await response.json()) as Comparison & { error?: string };
+        } catch {
+          throw new Error(
+            `촬영 서버가 정상적인 응답을 반환하지 않았습니다 (HTTP ${response.status}). 잠시 후 다시 실행하세요.`,
+          );
+        }
         if (!response.ok) throw new Error(body.error ?? '비교 요청을 완료하지 못했습니다.');
         updatePage(page.id, { state: 'done', comparison: body });
       } catch (error) {
@@ -1147,7 +1154,10 @@ export function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setSettingsOpen(false)}
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setCustomHeaders({ before: [], after: [] });
+                }}
               >
                 취소
               </button>

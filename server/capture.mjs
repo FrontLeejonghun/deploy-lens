@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 import serverlessChromium from '@sparticuz/chromium';
 import { specimen } from './specimen.mjs';
+import { isVercelLogin } from './target.mjs';
 
 export const VIEWPORT_MAP = {
   desktop: { width: 1440, height: 960 },
@@ -97,19 +98,29 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
   const requests = [];
   const warnings = [];
   let blockedRequests = 0;
+  let protectionRedirect = false;
   const headerMap = Object.fromEntries(
     customHeaders.map((header) => [header.name.toLowerCase(), header.value]),
   );
+  const secretValues = [
+    ...customHeaders.map((header) => header.value),
+    ...new URL(url).searchParams.values(),
+  ].filter(Boolean);
   const redact = (value) =>
-    customHeaders.reduce(
-      (text, header) => text.split(header.value).join('[비공개 헤더 값]'),
-      value,
-    );
+    secretValues.reduce((text, secret) => text.split(secret).join('[비공개 설정값]'), value);
   const protectedOrigin = new URL(url).origin;
   try {
     await context.route('**/*', async (route) => {
       const request = route.request();
       const target = new URL(request.url());
+      if (
+        request.isNavigationRequest() &&
+        request.frame().parentFrame() === null &&
+        isVercelLogin(target.href, protectedOrigin)
+      ) {
+        protectionRedirect = true;
+        return route.abort('blockedbyclient');
+      }
       if (demo && target.hostname === 'demo.deploy-lens.test') {
         if (target.pathname.endsWith('/assets/renderCheck.css'))
           return route.fulfill({
@@ -135,27 +146,50 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
         blockedRequests += 1;
         return route.abort('blockedbyclient');
       }
-      if (target.origin === protectedOrigin && customHeaders.length) {
-        try {
-          const response = await route.fetch({
-            headers: { ...request.headers(), ...headerMap },
-            maxRedirects: 0,
-            timeout: 20000,
-          });
-          await route.fulfill({ response });
-          await response.dispose();
-          return;
-        } catch {
-          if (warnings.length < 20)
-            warnings.push(
-              '인증 헤더를 포함한 요청을 완료하지 못했습니다. 접근 권한 또는 응답 시간을 확인하세요.',
-            );
-          return route.abort('failed').catch(() => {});
-        }
-      }
       return route.continue();
     });
     const page = await context.newPage();
+    const session = await context.newCDPSession(page);
+    const { frameTree } = await session.send('Page.getFrameTree');
+    session.on('Fetch.requestPaused', (event) => {
+      void (async () => {
+        const { requestId, request, frameId, resourceType } = event;
+        const target = new URL(request.url);
+        if (
+          resourceType === 'Document' &&
+          frameId === frameTree.frame.id &&
+          isVercelLogin(target.href, protectedOrigin)
+        ) {
+          protectionRedirect = true;
+          await session.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
+          return;
+        }
+        const headers = Object.fromEntries(
+          Object.entries(request.headers).map(([name, value]) => [
+            name.toLowerCase(),
+            String(value),
+          ]),
+        );
+        if (target.origin === protectedOrigin) Object.assign(headers, headerMap);
+        // CDP overrides apply to one hop only. Re-evaluate the origin for every redirect.
+        await session.send('Fetch.continueRequest', {
+          requestId,
+          ...(target.origin === protectedOrigin && customHeaders.length
+            ? {
+                headers: Object.entries(headers).map(([name, value]) => ({ name, value })),
+              }
+            : {}),
+        });
+      })().catch(() => {
+        void session
+          .send('Fetch.failRequest', { requestId: event.requestId, errorReason: 'Failed' })
+          .catch(() => {});
+      });
+    });
+    await session.send('Fetch.enable', {
+      patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+    });
+
     page.on('dialog', (dialog) => {
       void dialog.dismiss();
     });
@@ -189,6 +223,8 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
     });
     const started = Date.now();
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    if (protectionRedirect || isVercelLogin(page.url(), protectedOrigin))
+      throw new Error('DEPLOYMENT_PROTECTION');
     if (response && response.status() >= 400)
       throw new Error(`페이지가 HTTP ${response.status()}로 응답했습니다.`);
     await page
@@ -327,6 +363,9 @@ async function capture(browser, url, viewport, masks, signal, demo, customHeader
       finalUrl: redact(scrub(page.url())),
       elapsedMs: Date.now() - started,
     };
+  } catch (error) {
+    if (protectionRedirect) throw new Error('DEPLOYMENT_PROTECTION');
+    throw error;
   } finally {
     signal.removeEventListener('abort', abort);
     await context.close().catch(() => {});

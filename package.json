@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node --test tests/*.integration.mjs",
     "dev": "node --watch server/index.mjs",
     "build": "tsc --noEmit && vite build && node scripts/prepare-chromium.mjs",
     "start": "NODE_ENV=production node server/index.mjs",

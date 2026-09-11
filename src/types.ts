@@ -49,6 +49,7 @@ export type PageResult = {
   intended?: boolean;
 };
 export type Settings = {
+  requiresUrlParameters?: boolean;
   requiresHeaders?: boolean;
   beforeUrl: string;
   afterUrl: string;

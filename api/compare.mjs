@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { comparePage, launchBrowser } from '../server/capture.mjs';
 import { publicAddress, createEgressProxy } from '../server/egress.mjs';
+import { captureTarget } from '../server/target.mjs';
 
 const urlSchema = z
   .string()
@@ -101,18 +102,12 @@ export default async function handler(req, res) {
   let proxy;
   try {
     const input = parsed.data;
-    const target = (base) => {
-      const root = new URL(base);
-      const combined = new URL(root.pathname.replace(/\/$/, '') + input.path, root.origin);
-      if (combined.origin !== root.origin) throw new Error('페이지 경로가 올바르지 않습니다.');
-      return combined.href;
-    };
     const beforeUrl = input.demo
       ? `https://demo.deploy-lens.test/before${input.path}`
-      : target(input.beforeUrl);
+      : captureTarget(input.beforeUrl, input.path);
     const afterUrl = input.demo
       ? `https://demo.deploy-lens.test/after${input.path}`
-      : target(input.afterUrl);
+      : captureTarget(input.afterUrl, input.path);
     if (!input.demo) {
       await Promise.all([
         publicAddress(new URL(beforeUrl).hostname),
@@ -135,7 +130,7 @@ export default async function handler(req, res) {
     });
     return res.status(200).json({
       ...result,
-      path: input.path,
+      path: input.path.split(/[?#]/, 1)[0],
       device: input.device,
       capturedAt: new Date().toISOString(),
     });
@@ -144,26 +139,30 @@ export default async function handler(req, res) {
     const code =
       controller.signal.aborted || /Timeout|timeout|초과/.test(message)
         ? 'timeout'
-        : /HTTP (401|403)/.test(message)
-          ? 'accessDenied'
-          : /Target.*closed|browser.*closed|Browser.*closed|browserType/.test(message) ||
-              stage === 'browser'
-            ? 'browserFailure'
-            : /ERR_NAME_NOT_RESOLVED/.test(message)
-              ? 'dnsFailure'
-              : /ERR_CERT|SSL/.test(message)
-                ? 'certificateFailure'
-                : /공개 인터넷/.test(message)
-                  ? 'privateAddress'
-                  : /selector|Selector/.test(message)
-                    ? 'invalidSelector'
-                    : 'captureFailure';
+        : /DEPLOYMENT_PROTECTION/.test(message)
+          ? 'deploymentProtection'
+          : /HTTP (401|403)/.test(message)
+            ? 'accessDenied'
+            : /Target.*closed|browser.*closed|Browser.*closed|browserType/.test(message) ||
+                stage === 'browser'
+              ? 'browserFailure'
+              : /ERR_NAME_NOT_RESOLVED/.test(message)
+                ? 'dnsFailure'
+                : /ERR_CERT|SSL/.test(message)
+                  ? 'certificateFailure'
+                  : /공개 인터넷/.test(message)
+                    ? 'privateAddress'
+                    : /selector|Selector/.test(message)
+                      ? 'invalidSelector'
+                      : 'captureFailure';
     console.error('촬영 실패', {
       stage,
       code,
       name: error instanceof Error ? error.name : 'UnknownError',
     });
     const messages = {
+      deploymentProtection:
+        'Vercel 로그인으로 이동했습니다. Share 링크는 발급된 URL 전체를, 자동화 시크릿은 x-vercel-protection-bypass 헤더에 입력하세요. 링크의 도메인·만료 여부도 확인하세요.',
       timeout:
         '페이지 촬영 대기 시간이 초과되었습니다. 동적 영역을 제외하거나 잠시 후 다시 실행하세요.',
       accessDenied:

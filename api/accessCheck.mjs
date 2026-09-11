@@ -2,6 +2,14 @@
 export default function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const url = new URL(req.url, 'https://deploy-lens-silk.vercel.app');
+  if (url.searchParams.get('share') === 'preview') {
+    res.setHeader(
+      'Set-Cookie',
+      'deploy_lens_fixture=preview; Path=/api/accessCheck; HttpOnly; Secure; SameSite=Lax',
+    );
+    res.setHeader('Location', '/api/accessCheck');
+    return res.status(302).end();
+  }
   if (url.searchParams.get('redirect') === '1') {
     res.setHeader(
       'Location',
@@ -9,8 +17,17 @@ export default function handler(req, res) {
     );
     return res.status(302).end();
   }
-  if (req.headers['x-deploy-lens-demo'] !== 'preview')
+  if (
+    req.headers['x-deploy-lens-demo'] !== 'preview' &&
+    !req.headers.cookie
+      ?.split(';')
+      .some((cookie) => cookie.trim() === 'deploy_lens_fixture=preview')
+  )
     return res.status(401).send('데모 인증 헤더가 필요합니다.');
+  if (url.searchParams.get('redirect') === 'same') {
+    res.setHeader('Location', '/api/accessCheck');
+    return res.status(302).end();
+  }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   return res
     .status(200)

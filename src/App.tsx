@@ -49,6 +49,7 @@ import type {
 } from '@/types';
 import { listReports, removeReport, saveReport } from '@/storage';
 import { downloadReport } from '@/export';
+import { hasUrlParameters, withoutUrlParameters } from '@/urlPrivacy';
 
 const INITIAL_SETTINGS: Settings = {
   beforeUrl: '',
@@ -204,23 +205,34 @@ export function App() {
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    const savedSettings: Settings = {
+      ...nextSettings,
+      beforeUrl: withoutUrlParameters(nextSettings.beforeUrl),
+      afterUrl: withoutUrlParameters(nextSettings.afterUrl),
+      paths: paths.map(withoutUrlParameters).join('\n'),
+      requiresHeaders: !!(requestHeaders.before.length || requestHeaders.after.length),
+      requiresUrlParameters: [nextSettings.beforeUrl, nextSettings.afterUrl, ...paths].some(
+        hasUrlParameters,
+      ),
+    };
     let nextReport: Report = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       name: nextSettings.demo ? 'Forma 샘플 비교' : shortHost(nextSettings.beforeUrl),
-      settings: {
-        ...nextSettings,
-        requiresHeaders: !!(requestHeaders.before.length || requestHeaders.after.length),
-      },
+      settings: savedSettings,
       pages: devices.flatMap((viewport) =>
         paths.map((path) => ({
           id: crypto.randomUUID(),
-          path,
+          path: withoutUrlParameters(path),
           device: viewport,
           state: 'pending',
         })),
       ),
     };
+    const requestPaths = new Map(
+      nextReport.pages.map((page, index) => [page.id, paths[index % paths.length]]),
+    );
+    setSettings(savedSettings);
     setReport(nextReport);
     setSelectedId(nextReport.pages[0].id);
     setDevice(devices[0]);
@@ -255,7 +267,7 @@ export function App() {
             })),
             beforeUrl: nextSettings.beforeUrl,
             afterUrl: nextSettings.afterUrl,
-            path: page.path,
+            path: requestPaths.get(page.id),
             device: page.device,
             masks: nextSettings.masks
               .split('\n')
@@ -1040,6 +1052,12 @@ export function App() {
                   }
                 />
               </label>
+            </div>
+            <div className="form-note">
+              Vercel Share 링크는 발급된 URL 전체를 입력하세요. URL의 쿼리·해시는 기록과 보고서에
+              저장하지 않습니다.
+              {settings.requiresUrlParameters &&
+                ' 재실행하려면 공유 링크 또는 쿼리를 다시 입력하세요.'}
             </div>
             <details className="custom-headers" open={settings.requiresHeaders || undefined}>
               <summary>
